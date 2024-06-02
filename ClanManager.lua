@@ -141,7 +141,11 @@ end
 
 -- // Clan Manager
 
-local ClanManager = {}
+local ClanManager = {} :: {
+	new: (Name: string, RequestPlayer: Player) -> ClanManager,
+	Clans: {ClanManager}
+}
+
 ClanManager.Clans = {}
 ClanManager.__index = ClanManager
 
@@ -312,8 +316,13 @@ MessagingService:SubscribeAsync('ClanChanged', function(Message)
 			ClanData[i] = v
 		end
 		
+		if not Data.Leader then
+			ClanData.OnDisband:Fire()
+			ClanData = {}
+		end
+		
 		ClanData.ClanUpdated:Fire(true)
 	end
 end)
 
-return ClanManager :: {new: (Name: string, RequestPlayer: Player) -> ClanManager, Clans: {ClanManager}}
+return ClanManager
