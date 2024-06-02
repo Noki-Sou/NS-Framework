@@ -1,6 +1,6 @@
 --!nocheck
 
--- // FullName: ReplicatedStorage.StatusReplicated
+-- // FullName: ReplicatedStorage.StatusReplicator
 -- // Type: Client Module (Client Only)
 
 local ReplicatedStorage = game:GetService('ReplicatedStorage')
