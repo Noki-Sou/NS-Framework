@@ -19,7 +19,7 @@ StatusReplicator:WaitForContainer()
 
 RunService.RenderStepped:Connect(function()
 	local Speed = 16
-	local StatusHash = Status:GetStatusHash()
+	local StatusHash = StatusReplicator:GetStatusHash()
 	
 	if StatusHash.Speed then
 		Speed += StatusReplicator:FindClass('Speed').Value
