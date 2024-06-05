@@ -126,16 +126,16 @@ function Signal:Connect(Callback)
 		self.Signal = Event
 	end
 
-	return Event.Event:Connect(function(Status: Type_Status)
-		Callback(Status)
+	return Event.Event:Connect(function(...)
+		Callback(...)
 	end)
 end
 
-function Signal:Fire(Status: Type_Status)
+function Signal:Fire(...)
 	local Event: BindableEvent = self.Signal
 
 	if Event then
-		Event:Fire(Status)
+		Event:Fire(...)
 	end
 end
 
