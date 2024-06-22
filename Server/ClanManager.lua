@@ -1,7 +1,7 @@
 --!nocheck
 
 -- // NOTES;
--- This was made in hopes of Type Soul devs finding this and fixing their clan system, it's literally so buggy.
+-- This was made in hopes of Type Soul devs finding this and fixing their clan system, it's literally so buggy. (they fixed it lmao)
 -- It's recommended to use any other DataStore you are currently using, Example: ProfileStore, DataStore2, MongoStore, etc...
 
 -- Tip: Players:GetNameFromUserIdAsync to get their Name for other purpose
