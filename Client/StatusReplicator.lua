@@ -1,218 +1,168 @@
---!nocheck
+local Signal = require(script.Signal)
+local Status_Type = require(script.Status)
+local Status, StatusClassFunction = Status_Type[1], Status_Type[2]
 
--- // FullName: ReplicatedStorage.StatusReplicator
--- // Type: Client Module (Client Only)
-
-local ReplicatedStorage = game:GetService('ReplicatedStorage')
-local HttpService = game:GetService('HttpService')
-local Requests = ReplicatedStorage:WaitForChild('Requests')
-local Status = Requests:WaitForChild('Status')
-
-export type Type_Status = {
-	ID: string,
-	Class: string,
-	Value: any,
-	Created: number,
-	Disabled: boolean,
-	Remove: (self) -> nil,
-	Debris: (self, Lifetime: number) -> Type_Status
-} -- Type of the Status
-
-local module = {
-	Container = nil,
-	Effects = {}
+export type StatusContainer = {
+	Container: any,
+	Status: {Status_Type.Status},
+	OnStatusAdded: Signal.Signal<any>,
+	OnStatusRemoved: Signal.Signal<any>,
+	Updated: Signal.Signal<any>,
+	WaitForContainer: (self: StatusContainer) -> StatusContainer,
+	FindClass: (self: StatusContainer, Class: string) -> Status_Type.Status,
+	RemoveByClass: (self: StatusContainer, Class: string) -> (),
+	Remove: (self: StatusContainer, ID: string) -> (),
+	Add: (self: StatusContainer, Class: string, Properties: Status_Type.StatusProperty?) -> Status_Type.Status
 }
 
-local Signal = {}
-function Signal:Connect(Callback) -- Connect to the Signal
-	local Event = self.Signal
+export type Status = Status_Type.Status
 
-	-- Check if Event exist or not.
-	if not Event then
-		-- Event does not exist, assinging a new bindable event to communicate.
-		Event = Instance.new('BindableEvent')
-		self.Signal = Event
+local StatusReplicator: StatusContainer = {
+	Status = {},
+	Container = nil,
+	OnStatusAdded = Signal.new(),
+	OnStatusRemoved = Signal.new(),
+	Updated = Signal.new(),
+	WaitForContainer = nil,
+	RemoveByClass = nil,
+	Remove = nil,
+	FindClass = nil,
+	Add = nil
+}
+
+local Players = game:GetService('Players')
+local RunService = game:GetService('RunService')
+local ReplicatedStorage = game:GetService('ReplicatedStorage')
+
+local StatusRequest = ReplicatedStorage:WaitForChild('Requests'):WaitForChild('Status')
+
+local IsServer = RunService:IsServer()
+local IsClient = RunService:IsClient()
+
+-- This function Add a new status with specified class and properties
+function StatusReplicator:Add(Class: string, Properties: Status_Type.StatusProperty?)
+	if not StatusReplicator.Container then
+		return warn('Container is not loaded')
 	end
-
-	Event.Event:Connect(function(Status: Type_Status)
-		-- Return the Status to the Callback assigned.
-		Callback(Status)
-	end)
-end
-
-function Signal:Fire(Status: Type_Status) -- Fire the Signal if exist
-	local Event: BindableEvent = self.Signal
-
-	-- Check if there's a script listening to the Signal Connect
-	if Event then
-		-- If there is, fire the signal.
-		Event:Fire(Status)
-	end
-end
-
-local StatusFunctions = {}
-
--- Removes Status
-function StatusFunctions:Remove()
-	-- Send a signal to RemovedStatus
-	if module.OnStatusRemoved then
-		module.OnStatusRemoved:Fire(self.ID)
-	end
-
-	-- Remove Status from module's Effect
-	module.Effects[self.ID] = nil
-end
-
--- Queue the Status to remove after a certain time
-function StatusFunctions:Debris(Lifetime: number): Type_Status
-	-- Delay until the specified Lifetime is reached
-	task.delay(Lifetime, function()
-		-- Call Remove function
-		self:Remove()
-	end)
 	
-	-- Return incase we still need to use it.
-	return self
+	local StatusClass = Status.new(self, Class, Properties)
+	StatusClass.HELLO = false
+
+	StatusReplicator.Status[StatusClass.ID] = StatusClass
+	StatusReplicator.OnStatusAdded:Fire(StatusClass)
+
+	return StatusClass
 end
 
--- Creates a new Status.
-function module:Add(Class: string, Properties): Type_Status
-	-- Checks if Properties exist or not, if not assign a table instead.
-	local Properties = Properties or {}
-
-	-- Create the status with properties, and assign StatusFunction as the new __index
-	local Status = setmetatable({
-		ID = HttpService:GenerateGUID(false),
-		Class = Class,
-		Value = Properties.Value or true,
-		Disabled = Properties.Disabled or false,
-		Domain = 'Client'
-	},{__index = StatusFunctions})
-
-	-- Assign the Status to module's Effect list
-	module.Effects[Status.ID] = Status
-	
-	if module.OnStatusAdded then
-		module.OnStatusAdded:Fire(Status)
+-- This function Removes a Status by it's ID
+function StatusReplicator:Remove(ID: string)
+	local Status: Status_Type.Status = self.Container[self.ID]
+	if Status then
+		Status:Remove()
 	end
+end
 
+-- This function Find a status by it's class
+function StatusReplicator:FindClass(Class: string)
+	local Status
+	for _,v in StatusReplicator.Status do
+		if v.Class == Class then
+			Status = v
+			break
+		end
+	end
 	return Status
 end
 
--- Returns a Class specified
-function module:FindClass(Class: string, IncludeDisabled: boolean): Type_Status
-	for _, v in pairs(self.Effects) do
-		-- Check if the class is the same as the one specified in the Parameters.
-		if v.Class ~= Class then
-			continue
-		end
-
-		-- Check whether we should include disabled statuses or not.
-		if v.Disabled and not IncludeDisabled then
-			continue
-		end
-
-		return v
+-- This function Removes a Status by it's class
+function StatusReplicator:RemoveByClass(Class: string)
+	local Status: Status_Type.Status = self:FindClass(Class)
+	if Status then
+		Status:Remove()
 	end
-	
-	return nil
 end
 
--- Returns a Status with specified Value
-function module:FindValue(Value: any, IncludeDisabled: boolean): Type_Status
-	for _, v in pairs(self.Effects) do
-		-- Check if the value is the same as the one specified in the Parameters.
-		if v.Value ~= Value then
-			continue
-		end
-
-		-- Check whether we should include disabled statuses or not.
-		if v.Disabled and not IncludeDisabled then
-			continue
-		end
-
-		return v
-	end
-	
-	return nil
+-- This function waits until the container gets updated by the server
+function StatusReplicator:WaitForContainer()
+	repeat task.wait() until StatusReplicator.Container
+	return StatusReplicator.Container
 end
 
--- Returns a table with active classes.
-function module:GetStatusHash(IncludeDisabled: boolean): {[any]: string}
-	local Hash = {}
-	
-	for _, v in pairs(self.Effects) do
-		if v.Disabled and not IncludeDisabled then
-			continue
-		end
+-- Handle status removals
+StatusReplicator.OnStatusRemoved:Connect(function(Status)
+	if not StatusReplicator.Status[Status.ID] then return end
 
-		Hash[v.Class] = true
-	end
-	
-	return Hash
-end
+	StatusReplicator.Status[Status.ID] = nil
+end)
 
--- Yield until container is added by the server.
-function module:WaitForContainer(): boolean
-	repeat
-		task.wait()
-	until module.Container
+-- This will handle all the cross communication betwen server and client
+StatusRequest.OnClientEvent:Connect(function(Request)
+	local Status = Request.Status
 
-	return true
-end
-
--- OnStatus Signals
-module.OnStatusAdded = setmetatable({},{__index = Signal})
-module.OnStatusRemoved = setmetatable({},{__index = Signal})
-
--- Update the client's status from server
-Status.Update.OnClientEvent:Connect(function(Args: {Status: Type_Status, UpdateType: string})
-
-	-- Assign the module's Container, the status should be Humanoid.
-	if Args.UpdateType == 'Update' then
-		module.Container = Args.Status
+	if Request.UpdateType == 'UpdateContainer' then
+		StatusReplicator.Container = Status
+		return
 	end
 
-	-- Clear the container and player's Status
-	if Args.UpdateType == 'Clear' then
-		module.Container = nil		
-		for _,v in pairs(module.Effects) do
+	if Request.UpdateType == 'Clear' then
+		StatusReplicator.Container = nil		
+		for _,v in pairs(StatusReplicator.Status) do
 			v:Remove()
 		end
+		return
 	end
 
-	-- Remove a specified Status from the server.
-	if Args.UpdateType == 'Remove' then
-		if module.Effects[Args.Status] then
-			module.Effects[Args.Status]:Remove()
+	if not StatusReplicator.Container then
+		StatusReplicator:WaitForContainer()
+	end
+
+	if Request.UpdateType == 'Remove' then
+		local Existing = StatusReplicator.Status[Status]
+		if Existing then
+			Existing:Remove()
 		end
 	end
 
-	-- Add a new status to the client, from the server.
-	if Args.UpdateType == 'Add' then
-		local Status = Args.Status
-
-		-- Check if the Status already existed
-		if module.Effects[Status.ID] then
-			-- Status already existed, updating the old status instead of adding a new one.
-			module.Effects[Status.ID] = Args.Status
-		else
-			-- Status doesn't exist, creating a new one.
-			local New_Status = setmetatable({
-				ID = Status.ID,
-				Class = Status.Class,
-				Value = Status.Value or true,
-				Disabled = Status.Disabled or false,
-				Domain = 'Server'
-			},{__index = StatusFunctions})
-
-			module.Effects[Status.ID] = New_Status
-			
-			if module.OnStatusAdded then
-				module.OnStatusAdded:Fire(New_Status)
+	if Request.UpdateType == 'Update' then
+		local Existing = StatusReplicator.Status[Status.ID]
+		if Existing then
+			for i,v in pairs(Status) do
+				Existing[i] = v
 			end
+		else
+			Status.Connections = {
+				Updated = StatusReplicator.Updated,
+				OnStatusRemoved = StatusReplicator.OnStatusRemoved
+			}
+			Status.Debris = StatusClassFunction.Debris
+			Status.Remove = StatusClassFunction.Remove
+			
+			local proxy = setmetatable({index = Status}, {
+				__index = function(k, index: string)
+					local rtable = rawget(k, 'index')
+					return rtable and rtable[index]
+				end,
+				__tostring = function(k)
+					local rtable = rawget(k, 'index')
+					local str_format = ("\n| [Class]: %s \n| [Disabled]: %s \n| [Value]: %s \n| [Domain]: %s\n")
+					return str_format:format(rtable.Class, rtable.Disabled and '✓' or '✕', tostring(rtable.Value), rtable.Domain)
+				end,
+				__newindex = function(k, index: any, value: any)
+					local rtable = rawget(k, 'index')
+
+					rawset(rtable, index, value)
+
+					if rtable.Connections then
+						rtable.Connections.Updated:Fire(rtable)
+					end
+				end
+			})
+			
+			StatusReplicator.Status[Status.ID] = proxy
+
+			StatusReplicator.OnStatusAdded:Fire(StatusReplicator.Status[Status.ID])
 		end
 	end
 end)
 
-return module
+return StatusReplicator
