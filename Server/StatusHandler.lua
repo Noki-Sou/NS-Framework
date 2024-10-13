@@ -26,11 +26,12 @@ export type StatusProperty = {
 	Updated: Signal.Signal<any>
 }
 
-export type StatusContainer = StatusProperty & {
+export type StatusFunction = StatusProperty & {
 	Add: (Class: string, Properties: Status_Type.StatusProperty) -> Status_Type.Status,
 	Remove: (ID: string) -> (),
 	FindClass: (Class: string) -> Status_Type.Status,
-	RemoveByClass: (Class: string) -> ()
+	RemoveByClass: (Class: string) -> (),
+	GetStatusHash: () -> {Status_Type.Status}
 }
 
 local StatusFunction = {}
@@ -52,13 +53,91 @@ end
 
 function StatusFunction:FindClass(Class: string)
 	local Status
-	for _,v in self.Container do
+	for _,v in self.Status do
 		if v.Class == Class then
 			Status = v
 			break
 		end
 	end
 	return Status
+end
+
+function StatusFunction:GetStatusHash(IncludeDisabled: boolean)
+	local Hash = {}
+
+	for _, v in pairs(self.Status) do
+		if v.Disabled and not IncludeDisabled then
+			continue
+		end
+
+		Hash[v.Class] = true
+	end
+
+	return Hash
+end
+
+function StatusFunction:ListenAdded(Class: string, IncludeDisabled: boolean, Callback): RBXScriptConnection
+	local Connection; Connection = self.OnStatusAdded:Connect(function(Status: Status_Type.Status)
+		if Status.Class == Class then
+			Connection:Disconnect()
+			Callback(Status)
+		end
+	end)
+
+	if StatusFunction:FindClass(Class, IncludeDisabled) then
+		Connection:Disconnect()
+		task.spawn(Callback, self:FindClass(Class, IncludeDisabled))
+	end
+
+	return Connection
+end
+
+local StunType = {
+	Stun = {
+		'Stun',
+		'StunHeavy'
+	},
+	StunHeavy = {
+		'StunHeavy'
+	}
+}
+
+function StatusFunction:ListenStunAdded(Class: string, IncludeDisabled: boolean, Callback): RBXScriptConnection
+	local Connection; Connection = self.OnStatusAdded:Connect(function(Status: Status_Type.Status)
+		if StunType[Status.Class] and table.find(StunType[Status.Class], Status.Class) then
+			Connection:Disconnect()
+			Callback(Status)
+		end
+	end)
+
+	if StatusFunction:FindClass(Class, IncludeDisabled) then
+		Connection:Disconnect()
+		task.spawn(Callback, self:FindClass(Class, IncludeDisabled))
+	end
+
+	return Connection
+end
+
+function StatusFunction:ListenRemoved(Class: string, IncludeDisabled: boolean, Callback): RBXScriptConnection
+	local Connection; Connection = self.OnStatusRemoved:Connect(function(Status: Status_Type.Status)
+		if Status.Class == Class then
+			Callback(Status)
+			Connection:Disconnect()
+		end
+	end)
+
+	return Connection
+end
+
+function StatusFunction:ListenRemoving(Class: string, IncludeDisabled: boolean, Callback): RBXScriptConnection
+	local Connection; Connection = self.OnStatusRemoving:Connect(function(Status: Status_Type.Status)
+		if Status.Class == Class then
+			Callback(Status)
+			Connection:Disconnect()
+		end
+	end)
+
+	return Connection
 end
 
 function StatusFunction:RemoveByClass(Class: string)
@@ -68,7 +147,7 @@ function StatusFunction:RemoveByClass(Class: string)
 	end
 end
 
-function StatusHandler.new(Container: Instance, Overwrite: boolean): StatusContainer
+function StatusHandler.new(Container: Instance, Overwrite: boolean): StatusFunction
 	if not Container then
 		return
 	end
@@ -78,7 +157,7 @@ function StatusHandler.new(Container: Instance, Overwrite: boolean): StatusConta
 	end
 
 	local IsPlayer = typeof(Container) == 'Instance' and Container.Parent and Players:GetPlayerFromCharacter(Container.Parent)
-	local StatusContainer: StatusProperty = {
+	local StatusFunction: StatusProperty = {
 		Container = Container,
 		Status = {},
 		OnStatusAdded = Signal.new(),
@@ -86,20 +165,20 @@ function StatusHandler.new(Container: Instance, Overwrite: boolean): StatusConta
 		Updated = Signal.new()
 	}
 
-	StatusHandler.Containers[Container] = setmetatable(StatusContainer, {__index = StatusFunction})
+	StatusHandler.Containers[Container] = setmetatable(StatusFunction, {__index = StatusFunction})
 
 	if IsPlayer then
-		StatusContainer.OnStatusRemoved:Connect(function(Status)
-			if not StatusContainer.Status[Status.ID] then return end
+		StatusFunction.OnStatusRemoved:Connect(function(Status)
+			if not StatusFunction.Status[Status.ID] then return end
 			
-			StatusContainer.Status[Status.ID] = nil
+			StatusFunction.Status[Status.ID] = nil
 			StatusRequest:FireClient(IsPlayer, {
 				UpdateType = 'Remove',
 				Status = Status.ID
 			})
 		end)
 
-		StatusContainer.OnStatusAdded:Connect(function(Status)
+		StatusFunction.OnStatusAdded:Connect(function(Status)
 			StatusRequest:FireClient(IsPlayer, {
 				UpdateType = 'Update',
 				Status = {
@@ -114,7 +193,7 @@ function StatusHandler.new(Container: Instance, Overwrite: boolean): StatusConta
 			})
 		end)
 
-		StatusContainer.Updated:Connect(function(Status)
+		StatusFunction.Updated:Connect(function(Status)
 			StatusRequest:FireClient(IsPlayer, {
 				UpdateType = 'Update',
 				Status = {
@@ -139,7 +218,7 @@ function StatusHandler.new(Container: Instance, Overwrite: boolean): StatusConta
 		})
 	end
 
-	return StatusContainer
+	return StatusFunction
 end
 
 function StatusHandler:WaitForContainer(Container: Instance?)
