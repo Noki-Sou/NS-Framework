@@ -46,7 +46,6 @@ function StatusReplicator:Add(Class: string, Properties: Status_Type.StatusPrope
 	end
 	
 	local StatusClass = Status.new(self, Class, Properties)
-	StatusClass.HELLO = false
 
 	StatusReplicator.Status[StatusClass.ID] = StatusClass
 	StatusReplicator.OnStatusAdded:Fire(StatusClass)
